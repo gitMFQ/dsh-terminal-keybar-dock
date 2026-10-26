@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Terminal Keybar Dock",
-    "description": "Mobile only: docks the keys a soft keyboard lacks (Esc, Tab, Enter, Ctrl-C, arrows) as a solid bar at the terminal's bottom edge, riding on top of the open keyboard."
+    "description": "Mobile only: docks the keys a soft keyboard lacks (Ctrl, Shift, Esc, Tab, Enter, Ctrl-C, arrows) as a solid bar at the terminal's bottom edge, combining Ctrl/Shift with a bar key or the next typed character and riding on top of the open keyboard."
   }
 }

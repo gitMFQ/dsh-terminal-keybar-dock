@@ -24,12 +24,13 @@ guide.
 | CSS `:has()` (reserve selector) | browser | the reserve never applies (the bar floats over the terminal again); the gate still works |
 | `ctx.webTerminals.view(sessionId, key, contentId)` → `TerminalView` (the optional 4th/5th arguments, `terminalId` and `shellPath`, are omitted on purpose) | `packages/api/terminal-controller` | fails at load; if `key` semantics change, a second view is created that fights for the attachment (the terminal turns read-only and asks to "take control") |
 | `TerminalView.write(data)` (ignores input while the attachment is not writable, queues it within the attachment's byte budgets) | same | keys do nothing |
+| soft-keyboard text entering the terminal as a cancelable `beforeinput` (`inputType: 'insertText'`, one character) on xterm's hidden `textarea.xterm-helper-textarea` inside the `[data-sidebar-terminal]` body | `packages/client/ui-sidebar-terminal` (xterm's textarea input path) | Ctrl/Shift stop rewriting typed characters (Ctrl+D, Ctrl+Z, Ctrl+R become unreachable); the bar's own combinations (Shift+Tab, Ctrl+arrows) keep working |
 | `react-dom` `createPortal` is a baseline module | `packages/client/web/src/platform.ts` (`PLATFORM_MODULES`) | fails at load |
 | Mobile breakpoint: a viewport narrower than **768px** presents the right panel fullscreen (`MOBILE_WIDTH` in `client.js`) | `packages/client/ui-sidebar-right` / shell layout CSS | the bar shows where the panel is not fullscreen (covers the chat) or hides on phones; keep `MOBILE_WIDTH` in step with the shell |
 | `window.visualViewport` `height`/`offsetTop` + `resize`/`scroll` events; keyboard inset = `innerHeight − offsetTop − height` | browser API | the bar no longer rides the keyboard on iOS / modern Android; falls back to plain bottom docking |
 | Layer order: `shell.overlay` = 20, fullscreen right panel = 40 (`--dsh-dockkit-dock-layer`), dockkit float = 60, tab strip = 70 | `AppFrame.module.css`, `SidebarRight.module.css` | if upstream lifts the overlay above 40, the portal can go; if the panel goes higher, raise the bar's `zIndex` (1000) |
 | `dsh.client.inject`: an informational package list, not a Cordis service injection and not a module-graph edge | `packages/client/modules/src/client/manifest.ts` | naming a package that is not a Client row (e.g. `dsh-client-ui-slots`) is silently inert; keep the list to the rows that provide the services and the seat |
-| Theme tokens `--dsw-alias-bg-layer-1`, `-bg-layer-2`, `-border-l1`, `-border-l2`, `-label-primary` | `packages/client/ui-theme` | cosmetic only; renamed tokens never break rendering |
+| Theme tokens `--dsw-alias-bg-layer-1`, `-bg-layer-2`, `-border-l1`, `-border-l2`, `-label-primary` (and `-brand-primary`, `-label-primary-inverted` for the armed modifier) | `packages/client/ui-theme` | cosmetic only; renamed tokens never break rendering |
 | Safe-area insets `env(safe-area-inset-left/right/bottom)` need `viewport-fit=cover` to report values; without it they are 0 and the bar just docks flush | shell `index.html` / browser | cosmetic on notched devices only |
 
 **The one hard constraint**: `key` must equal the occurrence key the terminal body
@@ -77,6 +78,27 @@ When the keyboard is closed the inset is 0 and the safe-area term keeps the bar
 above the home indicator. On browsers that resize the layout viewport for the
 keyboard the inset reads 0 and `bottom: 0` is already above the keyboard.
 
+**Why the modifiers intercept `beforeinput`** (`Ctrl` / `Shift`): a modifier
+must be able to reach the characters typed on the soft keyboard, otherwise it
+would only combine with the bar's own keys and Ctrl+D, Ctrl+Z or Ctrl+R — the
+reason a terminal has Ctrl — would stay unreachable on a phone. The plugin
+cannot call xterm's handlers; it can only cancel what reaches the hidden
+textarea. xterm writes the textarea's value on its `input` event, and text
+insertion on that textarea is a cancelable `beforeinput` (`insertText`), so the
+plugin cancels the insertion at document capture, lets xterm's `input` handler
+never fire, and writes the rewritten byte through `TerminalView.write` — the
+same public path the row keys use. Only a single-character `insertText` is
+intercepted: an IME composition or a paste is left to xterm and the modifiers
+stay armed. The event target must live inside the active tab's body, so a
+character typed elsewhere can never be rewritten. Modifiers are one-shot and
+clear after the next key; a tap outside the bar, a tab switch or the bar
+disappearing clears them too, so a stale modifier cannot rewrite later input.
+This path relies on `beforeinput` being fired and cancelable (iOS Safari and
+Android Chrome do; hardware keyboards produce the same event for printable
+keys, while physical Ctrl/Alt/Meta combos do not, so those keep xterm's own
+handling and simply leave the bar's modifier armed). On a browser without it,
+typed characters are not rewritten; the bar's own combinations still work.
+
 ## After upgrading DSH
 
 ```sh
@@ -117,6 +139,16 @@ terminal so the soft keyboard opens → the bar rides up and sits on top of the
 keyboard while the terminal re-fits into what is left → tap `Esc` in vim or `↑`
 for history with the keyboard still open. Collapse the panel: the bar goes with
 it. Rotate to landscape (side-by-side layout): the bar hides.
+
+Modifiers: tap `Ctrl` → it lights up → tap `↑` → the cursor jumps by word
+(readline/vim) and `Ctrl` clears itself; tap `Shift` → tap `Tab` → back-tab.
+With the keyboard open: tap `Ctrl` → type `d` → the shell sees EOF (exit a
+subshell or close the prompt); tap `Ctrl` → type `a` → the cursor goes to the
+line start; tap `Ctrl` → type `z` → the foreground job suspends; tap `Ctrl` →
+type `l` → the screen clears. Tap `Ctrl` → tap the terminal → `Ctrl` goes dark
+and the next typed character is untouched; tap `Ctrl` twice → it goes dark.
+`Shift` + `Tab` on the bar and `Ctrl` + arrows are the combinations that do not
+need the keyboard.
 
 If the bar is missing, turn on the `DEBUG` switch at the top of `client.js`:
 

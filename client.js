@@ -32,6 +32,13 @@
  * that resize the layout viewport instead (older Android, Firefox) report no
  * inset, and their `bottom: 0` is already above the keyboard.
  *
+ * The row also carries sticky Ctrl and Shift keys. A modifier writes nothing
+ * itself: it arms for the next key — a row key or a character typed on the
+ * soft keyboard — and clears after it. While a modifier is armed the terminal's
+ * hidden textarea reports the next typed character as a cancelable
+ * `beforeinput`; cancelling it and writing the modified byte through the same
+ * service is what makes Ctrl-D, Ctrl-Z and Ctrl-R reachable on a phone at all.
+ *
  * It copies no terminal code. Every upstream name it depends on is listed in
  * MAINTENANCE.md, so an upstream upgrade can be adapted from that list alone.
  */
@@ -57,6 +64,8 @@ window.__ModuleLoader__.load({
     /** Simplified Chinese copy. */
     const zh = {
       label: '终端按键条',
+      'aria.ctrl': 'Control（组合键）',
+      'aria.shift': 'Shift（组合键）',
       'aria.escape': 'Escape',
       'aria.tab': 'Tab',
       'aria.enter': '回车',
@@ -70,6 +79,8 @@ window.__ModuleLoader__.load({
     /** English copy. */
     const en = {
       label: 'Terminal keys',
+      'aria.ctrl': 'Control (modifier)',
+      'aria.shift': 'Shift (modifier)',
       'aria.escape': 'Escape',
       'aria.tab': 'Tab',
       'aria.enter': 'Enter',
@@ -98,6 +109,93 @@ window.__ModuleLoader__.load({
       { id: 'left', text: '\u2190', data: '\u001b[D' },
       { id: 'right', text: '\u2192', data: '\u001b[C' },
     ]
+
+    /**
+     * The sticky modifiers at the head of the row. They write no bytes
+     * themselves: tapping one arms it for the next key, tapping it again
+     * disarms it, and the two compose (Ctrl+Shift).
+     */
+    const MODIFIERS = [
+      { id: 'ctrl', text: 'Ctrl' },
+      { id: 'shift', text: 'Shift' },
+    ]
+
+    /** Arrow-key finals in the CSI forms this row sends. */
+    const ARROW_FINALS = { up: 'A', down: 'B', right: 'C', left: 'D' }
+
+    /**
+     * The CSI arrow sequence for the armed modifiers.
+     *
+     * xterm's modifier parameter is `1 + Shift + 4 * Ctrl` (`2` Shift, `5`
+     * Ctrl, `6` both), so Ctrl/Shift+arrow become `ESC [ 1 ; <parameter> <final>`
+     * — the forms readline, vim and TUIs already understand for "word left"
+     * and selection. Without a modifier the plain `ESC [ <final>` form is kept.
+     * @param final - the arrow's final byte (`A` up, `B` down, `C` right, `D` left).
+     * @param mods - the armed modifiers.
+     * @returns the bytes to write.
+     */
+    function arrowSequence(final, mods) {
+      const parameter = 1 + (mods.shift ? 1 : 0) + (mods.ctrl ? 4 : 0)
+      return parameter === 1 ? `\u001b[${final}` : `\u001b[1;${parameter}${final}`
+    }
+
+    /**
+     * The bytes for one row key with the armed modifiers folded in.
+     * @param key - one entry of `KEYS`.
+     * @param mods - the armed modifiers.
+     * @returns the bytes to write.
+     */
+    function sequenceOf(key, mods) {
+      // Shift+Tab is the one back-tab form every terminal reads; Ctrl+Tab has
+      // no distinct byte, so it stays a tab.
+      if (key.id === 'tab') return mods.shift ? '\u001b[Z' : '\t'
+      const final = ARROW_FINALS[key.id]
+      if (final !== undefined) return arrowSequence(final, mods)
+      return key.data
+    }
+
+    /**
+     * The C0 byte a terminal expects for Ctrl plus one printable character,
+     * or null when the pair has no ASCII control meaning.
+     * @param char - one character, as typed.
+     * @returns the control byte, or null.
+     */
+    function controlByte(char) {
+      if (/^[a-z]$/i.test(char)) return String.fromCharCode(char.toLowerCase().charCodeAt(0) - 96)
+      switch (char) {
+        case ' ':
+        case '@': return '\u0000'
+        case '[': return '\u001b'
+        case '\\': return '\u001c'
+        case ']': return '\u001d'
+        case '^': return '\u001e'
+        case '_': return '\u001f'
+        case '?': return '\u007f'
+        default: return null
+      }
+    }
+
+    /**
+     * The bytes for one character typed on the soft keyboard while modifiers
+     * are armed.
+     *
+     * Ctrl wins over Shift, as on a physical keyboard. Ctrl only rewrites
+     * characters that have a control meaning; anything else is sent as typed.
+     * Shift raises ASCII letters and leaves every other character alone,
+     * because the soft keyboard has already applied its own shift to those.
+     * @param char - the typed character.
+     * @param mods - the armed modifiers.
+     * @returns the bytes to write.
+     */
+    function typedSequence(char, mods) {
+      if (mods.ctrl) {
+        const control = controlByte(char)
+        if (control !== null) return control
+        return char
+      }
+      if (mods.shift && /^[a-z]$/i.test(char)) return char.toUpperCase()
+      return char
+    }
 
     /**
      * Viewport width below which the right Sidebar presents its panel
@@ -156,8 +254,8 @@ window.__ModuleLoader__.load({
         zIndex: 1000,
         display: 'flex',
         flexDirection: 'row',
-        gap: 4,
-        padding: '5px 6px',
+        gap: 3,
+        padding: '5px 4px',
         borderTop: '1px solid var(--dsw-alias-border-l2)',
         background: 'var(--dsw-alias-bg-layer-1)',
         // A docked accessory bar: solid, squared, no shadow and no translucency.
@@ -180,6 +278,19 @@ window.__ModuleLoader__.load({
         lineHeight: 1,
         cursor: 'pointer',
         touchAction: 'manipulation',
+      },
+      // Modifier labels are words rather than glyphs; a smaller face keeps
+      // "Shift" inside a 30px key on a narrow phone without a second row.
+      modifier: {
+        fontSize: 11,
+        fontWeight: 500,
+      },
+      // Armed state: the one place in the bar with a solid accent, so "this
+      // modifier is live" reads instantly on a glance in sunlight.
+      armed: {
+        background: 'var(--dsw-alias-brand-primary)',
+        borderColor: 'var(--dsw-alias-brand-primary)',
+        color: 'var(--dsw-alias-label-primary-inverted)',
       },
       badge: {
         position: 'fixed',
@@ -316,6 +427,20 @@ window.__ModuleLoader__.load({
       const [touch] = React.useState(touchDevice)
       const { inset, width } = useKeyboardInset()
       const show = touch && width < MOBILE_WIDTH && target !== null
+      const tabId = target === null ? null : target.tabId
+      const [ctrl, setCtrl] = React.useState(false)
+      const [shift, setShift] = React.useState(false)
+
+      /** Disarm both modifiers; the next key (or a stray tap) consumes them. */
+      const clear = React.useCallback(() => {
+        setCtrl(false)
+        setShift(false)
+      }, [])
+
+      // A modifier armed for one tab must not fire into the next one, and a
+      // hidden bar must not keep a modifier armed behind it.
+      React.useEffect(clear, [show, tabId])
+
       // The bar floats over the frame, so the terminal has to give its band up
       // in the same commit the bar appears in, or the first frame shows the
       // bar on top of the rows it is about to displace.
@@ -325,24 +450,97 @@ window.__ModuleLoader__.load({
         root.style.setProperty(RESERVE_VAR, `calc(${BAR_HEIGHT}px + max(${inset}px, env(safe-area-inset-bottom)))`)
         return () => { root.style.removeProperty(RESERVE_VAR) }
       }, [show, inset])
+
+      // While a modifier is armed, the next character typed on the soft
+      // keyboard is rewritten instead of reaching xterm. The terminal's hidden
+      // textarea reports that insertion as a cancelable `beforeinput`, so
+      // cancelling it and writing the modified byte through the same service
+      // keeps the terminal in charge of the byte stream. Without this the
+      // modifiers would only reach the bar's own keys, and Ctrl-D, Ctrl-Z or
+      // Ctrl-R — the reason a terminal has Ctrl at all — would stay unreachable
+      // on a phone.
+      React.useEffect(() => {
+        if (!show || tabId === null || (!ctrl && !shift)) return
+        const armed = { ctrl, shift }
+        const intercept = (event) => {
+          // Composition (an IME) and multi-character insertions are not one
+          // keystroke: leave them to xterm and keep the modifiers armed.
+          if (event.defaultPrevented || event.isComposing) return
+          if (event.inputType !== 'insertText' || typeof event.data !== 'string') return
+          if (Array.from(event.data).length !== 1) return
+          const field = event.target
+          if (!(field instanceof HTMLTextAreaElement)) return
+          const body = tabBody(tabId)
+          if (body === null || !body.contains(field)) return
+          // Cancel the insertion so xterm's own input handler never sees the
+          // unmodified character, then write the modified byte.
+          event.preventDefault()
+          press(typedSequence(event.data, armed))
+          clear()
+        }
+        document.addEventListener('beforeinput', intercept, true)
+        return () => document.removeEventListener('beforeinput', intercept, true)
+      }, [show, tabId, ctrl, shift, press, clear])
+
+      // Arming a modifier is only meaningful for the next keystroke; a tap
+      // anywhere but on the bar cancels it, so a modifier tapped by accident
+      // cannot silently rewrite what is typed later.
+      React.useEffect(() => {
+        if (!show || (!ctrl && !shift)) return
+        const disarm = (event) => {
+          const node = event.target
+          if (node instanceof Element && node.closest('[data-terminal-keybar-dock]') !== null) return
+          clear()
+        }
+        document.addEventListener('pointerdown', disarm, true)
+        return () => document.removeEventListener('pointerdown', disarm, true)
+      }, [show, ctrl, shift, clear])
+
+      /**
+       * One sticky modifier button.
+       * @param modifier - one entry of `MODIFIERS`.
+       * @returns the button; switching a modifier on or off writes nothing.
+       */
+      const modifier = (modifier) => {
+        const armed = modifier.id === 'ctrl' ? ctrl : shift
+        return h('button', {
+          key: modifier.id,
+          type: 'button',
+          style: { ...styles.key, ...styles.modifier, ...(armed ? styles.armed : null) },
+          'aria-label': t(`aria.${modifier.id}`),
+          'aria-pressed': armed,
+          'data-terminal-keybar-modifier': modifier.id,
+          onPointerDown: (event) => {
+            event.preventDefault()
+            if (modifier.id === 'ctrl') setCtrl(value => !value)
+            else setShift(value => !value)
+          },
+        }, modifier.text)
+      }
+
       const bar = show
         ? h('div', {
           role: 'group',
           'aria-label': t('label'),
           'data-terminal-keybar-dock': '',
           style: { ...styles.bar, bottom: `calc(max(${inset}px, env(safe-area-inset-bottom)))` },
-        }, KEYS.map(key => h('button', {
-          key: key.id,
-          type: 'button',
-          style: styles.key,
-          'aria-label': t(`aria.${key.id}`),
-          // pointerdown, not click: the terminal's textarea keeps focus, so the
-          // soft keyboard stays open and the bytes precede any blur teardown.
-          onPointerDown: (event) => {
-            event.preventDefault()
-            press(key.data)
-          },
-        }, key.text)))
+        }, [
+          ...MODIFIERS.map(modifier),
+          ...KEYS.map(key => h('button', {
+            key: key.id,
+            type: 'button',
+            style: styles.key,
+            'aria-label': t(`aria.${key.id}`),
+            'data-terminal-keybar-key': key.id,
+            // pointerdown, not click: the terminal's textarea keeps focus, so the
+            // soft keyboard stays open and the bytes precede any blur teardown.
+            onPointerDown: (event) => {
+              event.preventDefault()
+              press(sequenceOf(key, { ctrl, shift }))
+              clear()
+            },
+          }, key.text)),
+        ])
         : null
       if (!DEBUG || typeof probe !== 'function') return portal(bar)
       const info = probe()
