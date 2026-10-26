@@ -1,0 +1,5 @@
+# One Host row so the bundle has an activation of its own. Every behavior of
+# this plugin lives in the Client half (./client.js).
+- insert:
+    - id: terminal-keybar-dock
+      name: dsh-terminal-keybar-dock

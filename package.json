@@ -1,0 +1,52 @@
+{
+  "name": "dsh-terminal-keybar-dock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mobile only: docks the keys a phone's soft keyboard lacks (Escape, Tab, Enter, Ctrl-C and the arrow keys) as a solid bar at the bottom of the active terminal, riding on top of the open keyboard.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "bundle",
+    "terminal",
+    "mobile",
+    "keyboard"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "client.js",
+    "index.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "MAINTENANCE.md"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-api-terminal-controller"
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Docked terminal key bar">
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#17191d" />
+  <path d="M20 32l14 14-14 14" fill="none" stroke="#f2f4f8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+  <rect x="46" y="54" width="26" height="8" rx="4" fill="#f2f4f8" />
+  <g fill="#247bbf">
+    <rect x="6" y="98" width="26" height="20" rx="6" />
+    <rect x="36" y="98" width="26" height="20" rx="6" />
+    <rect x="66" y="98" width="26" height="20" rx="6" />
+    <rect x="96" y="98" width="26" height="20" rx="6" />
+  </g>
+</svg>
